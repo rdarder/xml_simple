@@ -1,6 +1,3 @@
-#!/usr/bin/python2
-
-import sys
 from xml.sax import handler, make_parser
 import pprint
 import logging
@@ -38,7 +35,7 @@ class xml_tree(handler.ContentHandler):
 
 class xml_collapser(object):
   default_key_attr_keys=['name', 'key', 'id']
-  def __init__(self, force_array=[], content_key='content',
+  def __init__(self, force_array=[], content_key='content', keep_root=False,
                key_attr=['name', 'key', 'id'], group_tags={}):
     self.force_array = force_array
     #content_key, reduce_content
@@ -52,15 +49,15 @@ class xml_collapser(object):
     self.key_attr = key_attr
     #group_tags
     self.group_tags = group_tags
+    #keep_root
+    self.keep_root = keep_root
 
   def find_key_attr(self, name, sub_tree):
+    logging.debug("find key attr for %s", name)
     if sub_tree is None:
       return None, None
-    if isinstance(self.key_attr, list):
-      if name in self.key_attr:
-        candidates = self.default_key_attr_keys
-      else:
-        return None, None
+    if isinstance(self.key_attr, list): #xxx allow dict list
+      candidates = list(self.key_attr)
     elif isinstance(self.key_attr, dict):
       d = self.key_attr.get(name) or self.key_attr.get('default')
       if d is None:
@@ -77,8 +74,13 @@ class xml_collapser(object):
         return '+', candidates[0][1:]
       else:
         return None, candidates[0]
-
   def collapse(self, tree):
+    collapsed = self._collapse(tree)
+    if self.keep_root:
+      return {tree[0]:collapsed}
+    else:
+      return collapsed
+  def _collapse(self, tree):
     name, attrs, childs = tree
     if const.text in attrs and len(attrs) == 1 and len(childs) == 0:
       if self.reduce_content:
@@ -93,19 +95,20 @@ class xml_collapser(object):
       cname, cattrs, cchilds = child
       if cname in attrs:
         if isinstance(attrs[cname], list):
-          attrs[cname].append(self.collapse(child))
+          attrs[cname].append(self._collapse(child))
         else:
-          attrs[cname] = [attrs[cname],self.collapse(child)]
+          attrs[cname] = [attrs[cname],self._collapse(child)]
       elif cname in self.force_array:
         logging.debug("forcing array %s", cname)
-        attrs[cname] = [self.collapse(child)]
+        attrs[cname] = [self._collapse(child)]
       else:
-        attrs[cname] = self.collapse(child)
+        attrs[cname] = self._collapse(child)
     #key_attr processing pass, after force_array
     for aname, aval in attrs.items():
       if isinstance(aval,list):
         copy, key_attr = self.find_key_attr(aname, aval)
         if key_attr is not None:
+          logging.debug('key_attr: %s', key_attr)
           d = {}
           for item in aval: #elements in list to be converted into a dict
             d[item[key_attr]] = item
@@ -127,7 +130,4 @@ def xml_in(file, *args, **kwargs):
   parser.parse(file)
   t = collapser.collapse(content.tree)
   pprint.pprint(t)
-
-xml_in(sys.argv[1], content_key='-value', force_array=['variable'],
-       key_attr=['variable'], group_tags=dict(variables='variable'))
 

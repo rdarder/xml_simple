@@ -1,0 +1,8 @@
+- move argument processing to a separate method
+- divide the tree processing in discrete steps
+- more logging
+- review '+-' behaviour vs xml::simple
+- more samples
+- setuptools package
+- sphinx docs
+- py.test tests
