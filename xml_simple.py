@@ -1,9 +1,7 @@
+#!/usr/bin/python2
+
 from xml.sax import handler, make_parser
-import pprint
 import logging
-
-logging.basicConfig(level=logging.WARNING)
-
 
 class const:
   text=1
@@ -22,10 +20,12 @@ class xml_tree(handler.ContentHandler):
   def endDocument(self):
     pass
   def startElement(self, name, attrs):
-    self.stack.append((name, dict(attrs.items()), []))
+    d = dict(attrs.items())
+    d.setdefault(const.text,'')
+    self.stack.append((name, d, []))
   def characters(self, s):
     name, attrs, childs = self.stack.pop()
-    attrs[const.text] = s
+    attrs[const.text] += s
     self.stack.append((name, attrs, childs))
   def endElement(self, name):
     my = self.stack.pop()
@@ -79,17 +79,20 @@ class xml_collapser(object):
     if self.keep_root:
       return {tree[0]:collapsed}
     else:
-      return collapsed
+      if collapsed:
+        return collapsed
+      else:
+        return {}
   def _collapse(self, tree):
     name, attrs, childs = tree
     if const.text in attrs and len(attrs) == 1 and len(childs) == 0:
       if self.reduce_content:
-        return attrs[const.text]
+        return attrs[const.text].strip()
       else:
-        return {self.content_key: attrs[const.text]}
+        return {self.content_key: attrs[const.text].strip()}
     elif const.text in attrs:
       if len(childs) == 0:
-        attrs[self.content_key] = attrs[const.text]
+        attrs[self.content_key] = attrs[const.text].strip()
       del attrs[const.text]
     for child in childs:
       cname, cattrs, cchilds = child
@@ -100,7 +103,11 @@ class xml_collapser(object):
           attrs[cname] = [attrs[cname],self._collapse(child)]
       elif cname in self.force_array:
         logging.debug("forcing array %s", cname)
-        attrs[cname] = [self._collapse(child)]
+        to_force = self._collapse(child)
+        if isinstance(to_force, list):
+          attrs[cname] = to_force
+        else:
+          attrs[cname] = [to_force]
       else:
         attrs[cname] = self._collapse(child)
     #key_attr processing pass, after force_array
@@ -129,5 +136,42 @@ def xml_in(file, *args, **kwargs):
   parser.setContentHandler(content)
   parser.parse(file)
   t = collapser.collapse(content.tree)
-  pprint.pprint(t)
+  return t
+
+def list_or_dict_arg(args):
+  if ':' not in args[0]:
+    return args
+  else:
+    res = {}
+    for arg in args:
+      k,v = arg.split(':',2)
+      res[k] = v
+    return res
+
+
+if __name__ == '__main__':
+  import argparse
+  from pprint import pprint
+
+  parser = argparse.ArgumentParser(description='XML simple parser')
+  parser.add_argument('-a', '--force-array', nargs='*')
+  parser.add_argument('-c', '--content-key')
+  parser.add_argument('-r', '--keep-root', action='store_true', default=False)
+  parser.add_argument('-g', '--group-tags', nargs='*')
+  parser.add_argument('-k', '--key-attr', nargs='*')
+  parser.add_argument('file', metavar='file', type=argparse.FileType('r'))
+  args = vars(parser.parse_args())
+
+  file = args.pop('file')
+
+  for k,v in args.items():
+    if v is None:
+      del(args[k])
+    elif k in ['key_attr', 'group_tags']:
+      args[k] = list_or_dict_arg(args[k])
+
+  doc = xml_in(file, **args)
+  pprint(doc)
+
+
 
